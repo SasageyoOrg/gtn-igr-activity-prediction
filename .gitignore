@@ -15,5 +15,8 @@ data/molecules/*.pickle
 data/molecules/*.zip
 data/molecules/zinc-full/*.pkl
 
+#IGs dataset
+data/IGs/*.pkl
+
 dataset/
 

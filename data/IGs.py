@@ -1,6 +1,5 @@
 
 import time
-import os
 import pickle
 import numpy as np
 
@@ -138,7 +137,7 @@ def wl_positional_encoding(g):
 
 # ----- CLASS ------
 
-class IGDGL(torch.utils.data.Dataset):
+class IGsDGL(torch.utils.data.Dataset):
     #def __init__(self, name, **kwargs):
     def __init__(self, data_dir, split):
         self.data_dir = data_dir
@@ -203,20 +202,20 @@ class IGDGL(torch.utils.data.Dataset):
         """
         return self.graph_lists[idx], self.graph_labels[idx]
 
-class IGDatasetDGL(torch.utils.data.Dataset):
+class IGsDatasetDGL(torch.utils.data.Dataset):
     def __init__(self):
         t0 = time.time()
         print("[I] Loading data ...")
 
         data_dir = 'data/IGs'
-        self.train = IGDGL(data_dir, 'train')
-        self.val = IGDGL(data_dir, 'val')
-        self.test = IGDGL(data_dir, 'test')
+        self.train = IGsDGL(data_dir, 'train')
+        self.val = IGsDGL(data_dir, 'val')
+        self.test = IGsDGL(data_dir, 'test')
 
         print("[I] Finished loading.")
         print("Time taken: {:.4f}s".format(time.time()-t0))
     
-class IGDataset(torch.utils.data.Dataset):
+class IGsDataset(torch.utils.data.Dataset):
     def __init__(self):
         """
         Loading IGRAPH datasets
