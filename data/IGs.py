@@ -101,11 +101,11 @@ def wl_positional_encoding(g):
     for pair in edge_list:
         u1, u2 = pair
         if u1 not in node_neighbor_dict:
-        node_neighbor_dict[u1] = {}
+          node_neighbor_dict[u1] = {}
         if u2 not in node_neighbor_dict:
-        node_neighbor_dict[u2] = {}
-        node_neighbor_dict[u1][u2] = 1
-        node_neighbor_dict[u2][u1] = 1
+          node_neighbor_dict[u2] = {}
+          node_neighbor_dict[u1][u2] = 1
+          node_neighbor_dict[u2][u1] = 1
 
 
     # WL recursion
@@ -207,7 +207,7 @@ class IGsDatasetDGL(torch.utils.data.Dataset):
         t0 = time.time()
         print("[I] Loading data ...")
 
-        data_dir = 'data/IGs'
+        data_dir = "./data/IGs/"
         self.train = IGsDGL(data_dir, 'train')
         self.val = IGsDGL(data_dir, 'val')
         self.test = IGsDGL(data_dir, 'test')
@@ -220,7 +220,7 @@ class IGsDataset(torch.utils.data.Dataset):
         """
         Loading IGRAPH datasets
         """
-        data_dir = 'data/IGs'
+        data_dir = 'data/IGs/'
 
         start = time.time()
         print("[I] Loading dataset IGRAPH...")
