@@ -356,7 +356,10 @@ def main():
         
     # SBM
     net_params['in_dim'] = torch.unique(dataset.train[0][0].ndata['feat'],dim=0).size(0) # node_dim (feat is an integer)
-    net_params['n_classes'] = torch.unique(dataset.train[0][1],dim=0).size(0)
+    net_params['n_classes'] = 14
+    
+
+
     
 
     root_log_dir = out_dir + 'logs/' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
