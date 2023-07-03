@@ -106,7 +106,14 @@ class MoleculeDatasetDGL(torch.utils.data.Dataset):
             self.train = MoleculeDGL(data_dir, 'train', num_graphs=220011)
             self.val = MoleculeDGL(data_dir, 'val', num_graphs=24445)
             self.test = MoleculeDGL(data_dir, 'test', num_graphs=5000)
+            # self.train = MoleculeDGL(data_dir, 'train', num_graphs=100)
+            # self.val = MoleculeDGL(data_dir, 'val', num_graphs=100)
+            # self.test = MoleculeDGL(data_dir, 'test', num_graphs=100)
         else:            
+            # self.train = MoleculeDGL(data_dir, 'train', num_graphs=100)
+            # self.val = MoleculeDGL(data_dir, 'val', num_graphs=100)
+            # self.test = MoleculeDGL(data_dir, 'test', num_graphs=100)
+        # else:            
             self.train = MoleculeDGL(data_dir, 'train', num_graphs=10000)
             self.val = MoleculeDGL(data_dir, 'val', num_graphs=1000)
             self.test = MoleculeDGL(data_dir, 'test', num_graphs=1000)

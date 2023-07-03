@@ -4,8 +4,6 @@
 **/__pycache__
 out/
 
-gmail.py
-
 #SBM datasets
 data/SBMs/*.pkl
 
@@ -20,3 +18,15 @@ data/IGs/*.pkl
 
 dataset/
 
+config/*
+!config/IG_GraphTransformer.json
+/data/superpixels
+*cycles*
+*superpixels*
+layers/*
+!config/grap_transformer_edge_layer.py
+!config/grap_transformer_layer.py
+mlp_readout_layer.py
+launch.json
+IGs_old.py
+IGs_old2.py

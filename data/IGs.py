@@ -12,14 +12,18 @@ import networkx as nx
 
 import hashlib
 
-# ------ FUNC ---------
+import torch.nn.functional as F
+
+# ---------------------------------------------------------------------------- #
+#                                   Functions                                  #
+# ---------------------------------------------------------------------------- #
 def self_loop(g):
     """
         Utility function only, to be used only when necessary as per user self_loop flag
         : Overwriting the function dgl.transform.add_self_loop() to not miss ndata['feat'] and edata['feat']
 
 
-        This function is called inside a function in SBMsDataset class.
+        This function is called inside a function in IGsDataset class.
     """
     new_g = dgl.DGLGraph()
     new_g.add_nodes(g.number_of_nodes())
@@ -37,7 +41,7 @@ def self_loop(g):
     # However, we need this for the generic requirement of ndata and edata
     new_g.edata['feat'] = torch.zeros(new_g.number_of_edges())
     return new_g
-
+  
 def make_full_graph(g):
     """
         Converting the given graph to fully connected
@@ -58,23 +62,27 @@ def make_full_graph(g):
         pass 
 
     return full_g
-    
+  
 def laplacian_positional_encoding(g, pos_enc_dim):
     """
         Graph positional encoding v/ Laplacian eigenvectors
     """
 
     # Laplacian
+    # A =  dgl.to_scipy_sparse_matrix(g)
     A = g.adjacency_matrix_scipy(return_edge_ids=False).astype(float)
     N = sp.diags(dgl.backend.asnumpy(g.in_degrees()).clip(1) ** -0.5, dtype=float)
     L = sp.eye(g.number_of_nodes()) - N * A * N
 
     # Eigenvectors with scipy
     #EigVal, EigVec = sp.linalg.eigs(L, k=pos_enc_dim+1, which='SR')
-    EigVal, EigVec = sp.linalg.eigs(L, k=pos_enc_dim+1, which='SR', tol=1e-2) # for 40 PEs
-    EigVec = EigVec[:, EigVal.argsort()] # increasing order
-    g.ndata['lap_pos_enc'] = torch.from_numpy(EigVec[:,1:pos_enc_dim+1]).float() 
+    EigVal, EigVec = np.linalg.eig(L.toarray())
 
+    idx = EigVal.argsort() # increasing order
+    EigVal, EigVec = EigVal[idx], np.real(EigVec[:,idx])
+    g.ndata['lap_pos_enc'] = torch.from_numpy(EigVec[:,1:pos_enc_dim+1]).float()
+    g.ndata['lap_pos_enc'] = F.pad(g.ndata['lap_pos_enc'], (0, pos_enc_dim - g.ndata['lap_pos_enc'].size(1)))
+  
     return g
 
 def wl_positional_encoding(g):
@@ -134,8 +142,9 @@ def wl_positional_encoding(g):
     return g
 
 
-
-# ----- CLASS ------
+# ---------------------------------------------------------------------------- #
+#                                    Classes                                   #
+# ---------------------------------------------------------------------------- #
 
 class IGsDGL(torch.utils.data.Dataset):
     #def __init__(self, name, **kwargs):
@@ -154,13 +163,14 @@ class IGsDGL(torch.utils.data.Dataset):
         self.graph_lists = []
         self.n_samples = len(self.data)
         self._prepare()
-    
+        
+# ----------------------- Prepare function class IGsDGL ---------------------- #
     def _prepare(self):
         #print("preparing %d graphs for the set..." % (self.n_samples))
         print("preparing %d graphs for the %s set..." % (self.n_samples, self.split.upper()))
 
         for ig in self.data:
-            node_features = ig['node_type'].long()
+            #node_features = ig['node_type'].long()
             
             adj = ig['adj']
             edge_list = (adj != 0).nonzero()  # converting adj matrix to edge_list
@@ -174,11 +184,15 @@ class IGsDGL(torch.utils.data.Dataset):
             g = dgl.graph([])
             
             g.add_nodes(ig['num_node'])
-            g.ndata['feat'] = node_features
+            #.ndata['feat'] = node_features
+            # const 1 features for all nodes and edges; no node features
+            g.ndata['feat'] = torch.ones(ig['num_node'], 1, dtype=torch.float)
+
             
             for src, dst in edge_list:
                 g.add_edges(src.item(), dst.item())
-            g.edata['feat'] = edge_features
+            #g.edata['feat'] = edge_features
+            g.edata['feat'] = torch.ones(len(edge_list), 1, dtype=torch.float)
             
             self.graph_lists.append(g)
             self.graph_labels.append(ig['target'])
@@ -217,6 +231,7 @@ class IGsDatasetDGL(torch.utils.data.Dataset):
     
 class IGsDataset(torch.utils.data.Dataset):
     def __init__(self):
+        self.name = "IG"
         """
         Loading IGRAPH datasets
         """
@@ -225,24 +240,37 @@ class IGsDataset(torch.utils.data.Dataset):
         start = time.time()
         print("[I] Loading dataset IGRAPH...")
 
-        with open(data_dir+'igraph-DGL.pkl', "rb") as f:
-            f = pickle.load(f)
-            self.train = f[0]
-            self.val = f[1]
-            self.test = f[2]
+        with open(data_dir+'igraph-DatasetDGL.pkl', "rb") as f:
+            data = pickle.load(f)
+            # datasetDGL = f
+            self.train = data.train
+            self.val = data.val
+            self.test = data.test
 
+        
+        # self.train = datasetDGL.train
+        # self.val = datasetDGL.val
+        # self.test = datasetDGL.test
+        
         print('SIZE: train %s, test %s, val %s :' % (len(self.train),len(self.test),len(self.val)))
         print("[I] Finished loading.")
         print("[I] Data load time: {:.4f}s".format(time.time()-start))
+        print(f"Data instance example: {self.train[0][0]}")
 
+
+    # form a mini batch from a given list of samples = [(graph, label) pairs]
     def collate(self, samples):
-        # The input samples is a list of pairs (graph, label).
+        # The input samples is# a list of pairs (graph, label).
         graphs, labels = map(list, zip(*samples))
-        #labels = torch.cat(labels).long()
-        batched_graph = dgl.batch(graphs)
-
-        return batched_graph, labels
-
+        
+        labels = torch.tensor(np.array(labels))
+        # labels = torch.tensor(np.array(labels)).unsqueeze(1)
+        
+        # labels = torch.cat(labels).long()
+        batched_graph = dgl.batch(graphs)     
+    
+        return batched_graph, labels 
+      
     def _add_self_loops(self):
         # function for adding self loops
         # this function will be called only if self_loop flag is True
@@ -269,3 +297,20 @@ class IGsDataset(torch.utils.data.Dataset):
         self.train.graph_lists = [wl_positional_encoding(g) for g in self.train.graph_lists]
         self.val.graph_lists = [wl_positional_encoding(g) for g in self.val.graph_lists]
         self.test.graph_lists = [wl_positional_encoding(g) for g in self.test.graph_lists]
+        
+class DGLFormDataset(torch.utils.data.Dataset):
+    """
+        DGLFormDataset wrapping graph list and label list as per pytorch Dataset.
+        *lists (list): lists of 'graphs' and 'labels' with same len().
+    """
+    def __init__(self, *lists):
+        assert all(len(lists[0]) == len(li) for li in lists)
+        self.lists = lists
+        self.graph_lists = lists[0]
+        self.graph_labels = lists[1]
+
+    def __getitem__(self, index):
+        return tuple(li[index] for li in self.lists)
+
+    def __len__(self):
+        return len(self.lists[0])
