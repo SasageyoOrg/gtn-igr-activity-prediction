@@ -1,6 +1,7 @@
 """
     IMPORTING LIBS
 """
+
 import dgl
 
 import numpy as np
@@ -11,6 +12,8 @@ import random
 import glob
 import argparse, json
 import pickle
+import statistics
+import datetime
 
 import torch
 import torch.nn as nn
@@ -18,6 +21,8 @@ import torch.nn.functional as F
 
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.utils.data import WeightedRandomSampler
+from torch.utils.data import Subset
 
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
@@ -85,21 +90,28 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     per_epoch_time = []
     DATASET_NAME = dataset.name
     # Model Configuration -- edit config profile
+    if net_params['self_loop']:
+        st = time.time()
+        print("\n[!] Adding graph self-loops")
+        dataset._add_self_loops()
+        print('Time Self Loops:',time.time()-st)
+        
+            
     if net_params['lap_pos_enc']:
         st = time.time()
-        print("[!] Adding Laplacian positional encoding.")
+        print("\n[!] Adding Laplacian positional encoding.")
         dataset._add_laplacian_positional_encodings(net_params['pos_enc_dim'])
         print('Time LapPE:',time.time()-st)
         
     if net_params['wl_pos_enc']:
         st = time.time()
-        print("[!] Adding WL positional encoding.")
+        print("\n[!] Adding WL positional encoding.")
         dataset._add_wl_positional_encodings()
         print('Time WL PE:',time.time()-st)
     
     if net_params['full_graph']:
         st = time.time()
-        print("[!] Converting the given graphs to full graphs..")
+        print("\n[!] Converting the given graphs to full graphs..")
         dataset._make_full_graph()
         print('Time taken to convert to full graphs:',time.time()-st)
         
@@ -125,9 +137,11 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     print("Training Graphs: ", len(trainset))
     print("Validation Graphs: ", len(valset))
     print("Test Graphs: ", len(testset))
-    print("Number of Classes: ", net_params['n_classes'])
+    print("Number of Classes: ", net_params['n_classes'], "\n")
+
 
     model = gnn_model(MODEL_NAME, net_params)
+    
     model = model.to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=params['init_lr'], weight_decay=params['weight_decay'])
@@ -141,69 +155,71 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     
     # import train and evaluate functions
     from train.train_IGs_node_classification import train_epoch, evaluate_network 
-
     train_loader = DataLoader(trainset, batch_size=params['batch_size'], shuffle=True, collate_fn=dataset.collate)
     val_loader = DataLoader(valset, batch_size=params['batch_size'], shuffle=False, collate_fn=dataset.collate)
     test_loader = DataLoader(testset, batch_size=params['batch_size'], shuffle=False, collate_fn=dataset.collate)
         
     # At any point you can hit Ctrl + C to break out of training early.
     try:
-        with tqdm(range(params['epochs'])) as t:
-            for epoch in t:
+        for epoch in range(params['epochs']):
 
-                t.set_description('Epoch %d' % epoch)
+            start = time.time()
 
-                start = time.time()
-
-                epoch_train_loss, epoch_train_acc, optimizer = train_epoch(model, optimizer, device, train_loader, epoch)
-                    
-                epoch_val_loss, epoch_val_acc = evaluate_network(model, device, val_loader, epoch)
-                _, epoch_test_acc = evaluate_network(model, device, test_loader, epoch)        
+            epoch_train_loss, epoch_train_acc, optimizer, t = train_epoch(model, optimizer, device, train_loader, epoch)
                 
-                epoch_train_losses.append(epoch_train_loss)
-                epoch_val_losses.append(epoch_val_loss)
-                epoch_train_accs.append(epoch_train_acc)
-                epoch_val_accs.append(epoch_val_acc)
+            epoch_val_loss, epoch_val_acc = evaluate_network(model, device, val_loader, epoch)
+            _, epoch_test_acc = evaluate_network(model, device, test_loader, epoch)        
+            
+            epoch_train_losses.append(epoch_train_loss)
+            epoch_val_losses.append(epoch_val_loss)
+            epoch_train_accs.append(epoch_train_acc)
+            epoch_val_accs.append(epoch_val_acc)
 
-                writer.add_scalar('train/_loss', epoch_train_loss, epoch)
-                writer.add_scalar('val/_loss', epoch_val_loss, epoch)
-                writer.add_scalar('train/_acc', epoch_train_acc, epoch)
-                writer.add_scalar('val/_acc', epoch_val_acc, epoch)
-                writer.add_scalar('test/_acc', epoch_test_acc, epoch)
-                writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], epoch)
+            writer.add_scalar('train/_loss', epoch_train_loss, epoch)
+            writer.add_scalar('val/_loss', epoch_val_loss, epoch)
+            writer.add_scalar('train/_acc', epoch_train_acc, epoch)
+            writer.add_scalar('val/_acc', epoch_val_acc, epoch)
+            writer.add_scalar('test/_acc', epoch_test_acc, epoch)
+            writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], epoch)
 
-                t.set_postfix(time=time.time()-start, lr=optimizer.param_groups[0]['lr'],
-                              train_loss=epoch_train_loss, val_loss=epoch_val_loss,
-                              train_acc=epoch_train_acc, val_acc=epoch_val_acc,
-                              test_acc=epoch_test_acc)
+            per_epoch_time.append(time.time()-start)
+            expected_time_seconds = statistics.mean(per_epoch_time) * (params['epochs'] - (epoch + 1))
+            expected_hours = int(expected_time_seconds // 3600)
+            expected_minutes = int((expected_time_seconds % 3600) // 60)
+            print(f"  train time: {per_epoch_time[-1]:.4f}| "
+                  # f"expected time to end: {(statistics.mean(per_epoch_time)*(params['epochs']-(epoch+1))/3600):.2f} h.| "
+                  f"expected time to end: {expected_hours:02d}:{expected_minutes:02d} h. | "
+                  f"lr: {optimizer.param_groups[0]['lr']}| "
+                  f"train_loss: {epoch_train_loss:.4f}| "
+                  f"val_loss: {epoch_val_loss:.4f}| "
+                  f"train_acc: {epoch_train_acc:.4f}| "
+                  f"val_acc: {epoch_val_acc:.4f}| "
+                  f"test_acc: {epoch_test_acc:.4f}\n")
+            # Saving checkpoint
+            ckpt_dir = os.path.join(root_ckpt_dir, "RUN_")
+            if not os.path.exists(ckpt_dir):
+                os.makedirs(ckpt_dir)
+            torch.save(model.state_dict(), '{}.pkl'.format(ckpt_dir + "/epoch_" + str(epoch)))
 
-                per_epoch_time.append(time.time()-start)
+            files = glob.glob(ckpt_dir + '/*.pkl')
+            for file in files:
+                epoch_nb = file.split('_')[-1]
+                epoch_nb = int(epoch_nb.split('.')[0])
+                if epoch_nb < epoch-1:
+                    os.remove(file)
 
-                # Saving checkpoint
-                ckpt_dir = os.path.join(root_ckpt_dir, "RUN_")
-                if not os.path.exists(ckpt_dir):
-                    os.makedirs(ckpt_dir)
-                torch.save(model.state_dict(), '{}.pkl'.format(ckpt_dir + "/epoch_" + str(epoch)))
+            scheduler.step(epoch_val_loss)
 
-                files = glob.glob(ckpt_dir + '/*.pkl')
-                for file in files:
-                    epoch_nb = file.split('_')[-1]
-                    epoch_nb = int(epoch_nb.split('.')[0])
-                    if epoch_nb < epoch-1:
-                        os.remove(file)
-
-                scheduler.step(epoch_val_loss)
-
-                if optimizer.param_groups[0]['lr'] < params['min_lr']:
-                    print("\n!! LR SMALLER OR EQUAL TO MIN LR THRESHOLD.")
-                    break
-                    
-                # Stop training after params['max_time'] hours
-                if time.time()-start0 > params['max_time']*3600:
-                    print('-' * 89)
-                    print("Max_time for training elapsed {:.2f} hours, so stopping".format(params['max_time']))
-                    break
-    
+            if optimizer.param_groups[0]['lr'] < params['min_lr']:
+                print("\n!! LR SMALLER OR EQUAL TO MIN LR THRESHOLD.")
+                break
+                
+            # Stop training after params['max_time'] hours
+            if time.time()-start0 > params['max_time']*3600:
+                print('-' * 89)
+                print("Max_time for training elapsed {:.2f} hours, so stopping".format(params['max_time']))
+                break
+  
     except KeyboardInterrupt:
         print('-' * 89)
         print('Exiting from training early because of KeyboardInterrupt')
@@ -354,7 +370,9 @@ def main():
         
     # IGs
     net_params['in_dim'] = torch.unique(dataset.train[0][0].ndata['feat'],dim=0).size(0)
+    # net_params['in_dim'] = 0
     net_params['in_dim_edge'] = torch.unique(dataset.train[0][0].edata['feat'],dim=0).size(0)
+    # net_params['in_dim_edge'] = 0
     classes = np.array([0, 1])
     classes = np.append(classes, np.unique(np.array(dataset.train[:][1])))
     num_classes = len(classes)

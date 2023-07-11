@@ -34,7 +34,7 @@ class GraphTransformerNet(nn.Module):
         self.device = net_params['device']
         self.lap_pos_enc = net_params['lap_pos_enc']
         self.wl_pos_enc = net_params['wl_pos_enc']
-        max_wl_role_index = 1000 
+        max_wl_role_index = 77 
         
         if self.lap_pos_enc:
             pos_enc_dim = net_params['pos_enc_dim']
@@ -42,11 +42,14 @@ class GraphTransformerNet(nn.Module):
         if self.wl_pos_enc:
             self.embedding_wl_pos_enc = nn.Embedding(max_wl_role_index, hidden_dim)
         
-        #self.embedding_h = nn.Embedding(in_dim_node, hidden_dim) # node feat is an integer
-        in_dim = 1
-        self.embedding_h = nn.Linear(1, hidden_dim)
+        self.embedding_h = nn.Embedding(in_dim_node, hidden_dim) # node feat is an integer
         
+        # Regression
+        # in_dim = 1
+        # self.embedding_h = nn.Linear(1, hidden_dim)
         self.in_feat_dropout = nn.Dropout(in_feat_dropout)
+        
+        self.embedding_e = nn.Linear(1, hidden_dim)
         
         self.layers = nn.ModuleList([GraphTransformerLayer(hidden_dim, hidden_dim, num_heads,
                                               dropout, self.layer_norm, self.batch_norm, self.residual) for _ in range(n_layers-1)])
@@ -55,28 +58,28 @@ class GraphTransformerNet(nn.Module):
 
 
     def forward(self, g, h, e, h_lap_pos_enc=None, h_wl_pos_enc=None):
-
         # h = torch.round(h).long()
-        # print(f"h is {h}")
-        # input embedding
-        # print(f"h is {h}")
-        # print(f"embedding_h is {self.embedding_h}")
         
-        h = self.embedding_h(h)
+        # h = self.embedding_h(h)
         
         if self.lap_pos_enc:
             h_lap_pos_enc = self.embedding_lap_pos_enc(h_lap_pos_enc.float()) 
             h = h + h_lap_pos_enc
+            # h = h_lap_pos_enc
         if self.wl_pos_enc:
             h_wl_pos_enc = self.embedding_wl_pos_enc(h_wl_pos_enc) 
             h = h + h_wl_pos_enc
         h = self.in_feat_dropout(h)
         
-        # GraphTransformer Layers
-        # for conv in self.layers:
-        #     h = conv(g, h)
+        # edge feature set to 1
+        # e = torch.ones(e.size(0),1).to(self.device) 
+        # e = self.embedding_e(e)
+        
+        # convnets
+        for conv in self.layers:
+            h = conv(g, h)
         g.ndata['h'] = h
-            
+        
         if self.readout == "sum":
             hg = dgl.sum_nodes(g, 'h')
         elif self.readout == "max":
@@ -86,16 +89,21 @@ class GraphTransformerNet(nn.Module):
         else:
             hg = dgl.mean_nodes(g, 'h')  # default readout is mean nodes
             
-        # output
-        h_out = self.MLP_layer(hg)
-
-        return h_out
-    
-    
+        return self.MLP_layer(hg)
     def loss(self, pred, label):
-      criterion = nn.CrossEntropyLoss()
-      loss = criterion(pred, label)
-      return loss
+        # calculating label weights for weighted loss computation
+        V = label.size(0)
+        label_count = torch.bincount(label)
+        label_count = label_count[label_count.nonzero()].squeeze()
+        cluster_sizes = torch.zeros(self.n_classes).long().to(self.device)
+        cluster_sizes[torch.unique(label)] = label_count
+        weight = (V - cluster_sizes).float() / V
+        weight *= (cluster_sizes>0).float()
+        
+        criterion = nn.CrossEntropyLoss(weight=weight)
+        # criterion = nn.CrossEntropyLoss()
+        loss = criterion(pred, label)
+        return loss
 
 
 

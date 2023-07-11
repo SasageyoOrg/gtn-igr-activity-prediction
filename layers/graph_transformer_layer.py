@@ -46,7 +46,7 @@ class MultiHeadAttentionLayer(nn.Module):
             self.Q = nn.Linear(in_dim, out_dim * num_heads, bias=False)
             self.K = nn.Linear(in_dim, out_dim * num_heads, bias=False)
             self.V = nn.Linear(in_dim, out_dim * num_heads, bias=False)
-        
+      
     
     def propagate_attention(self, g):
         # Compute attention score
@@ -72,6 +72,7 @@ class MultiHeadAttentionLayer(nn.Module):
         
         self.propagate_attention(g)
         
+        # ! Division by zero? see line above
         head_out = g.ndata['wV']/g.ndata['z']
         
         return head_out
