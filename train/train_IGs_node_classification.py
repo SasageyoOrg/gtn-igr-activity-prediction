@@ -15,6 +15,14 @@ from train.metrics import accuracy_MNIST_CIFAR as accuracy
 
 
 def train_epoch(model, optimizer, device, data_loader, epoch):
+  
+    # print(f"Loading checkpoint")
+    # checkpoint = torch.load("out\IGs\checkpoints\GraphTransformer_IG_GPU0_14h17m35s_on_Jul_12_2023\RUN_\epoch_106.pkl")
+    # model.load_state_dict(checkpoint['model_state_dict'])
+    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    # epoch = checkpoint['epoch']
+    # loss = checkpoint['loss']
+
     model.train()
     epoch_loss = 0
     epoch_train_acc = 0

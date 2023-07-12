@@ -17,8 +17,31 @@ import torch.nn.functional as F
 # ---------------------------------------------------------------------------- #
 #                                   Functions                                  #
 # ---------------------------------------------------------------------------- #
+def self_loop(g):
+    """
+        Utility function only, to be used only when necessary as per user self_loop flag
+        : Overwriting the function dgl.transform.add_self_loop() to not miss ndata['feat'] and edata['feat']
 
-def positional_encoding(g, pos_enc_dim):
+
+        This function is called inside a function in IGsDataset class.
+    """
+    new_g = dgl.DGLGraph()
+    new_g.add_nodes(g.number_of_nodes())
+    new_g.ndata['feat'] = g.ndata['feat']
+
+    src, dst = g.all_edges(order="eid")
+    src = dgl.backend.zerocopy_to_numpy(src)
+    dst = dgl.backend.zerocopy_to_numpy(dst)
+    non_self_edges_idx = src != dst
+    nodes = np.arange(g.number_of_nodes())
+    new_g.add_edges(src[non_self_edges_idx], dst[non_self_edges_idx])
+    new_g.add_edges(nodes, nodes)
+
+    # This new edata is not used since this function gets called only for GCN, GAT
+    # However, we need this for the generic requirement of ndata and edata
+    new_g.edata['feat'] = torch.zeros(new_g.number_of_edges())
+    return new_g
+def laplacian_positional_encoding(g, pos_enc_dim):
     """
         Graph positional encoding v/ Laplacian eigenvectors
     """
@@ -32,13 +55,11 @@ def positional_encoding(g, pos_enc_dim):
     EigVal, EigVec = np.linalg.eig(L.toarray())
     idx = EigVal.argsort() # increasing order
     EigVal, EigVec = EigVal[idx], np.real(EigVec[:,idx])
-    g.ndata['pos_enc'] = torch.from_numpy(EigVec[:,1:pos_enc_dim+1]).float() 
-
-    # # Eigenvectors with scipy
-    # EigVal, EigVec = sp.linalg.eigs(L, k=pos_enc_dim+1, which='SR')
-    # EigVec = EigVec[:, EigVal.argsort()] # increasing order
-    # g.ndata['pos_enc'] = torch.from_numpy(np.abs(EigVec[:,1:pos_enc_dim+1])).float() 
-    
+    g.ndata['lap_pos_enc'] = torch.from_numpy(EigVec[:,1:pos_enc_dim+1]).float() 
+    # g.ndata['lap_pos_enc'] = F.pad(g.ndata['lap_pos_enc'], (0, pos_enc_dim - g.ndata['lap_pos_enc'].size(1)))
+    n = g.number_of_nodes()
+    if n <= pos_enc_dim:
+        g.ndata['lap_pos_enc'] = F.pad(g.ndata['lap_pos_enc'], (0, pos_enc_dim - n + 1), value=float('0'))
     return g
 
 
@@ -52,7 +73,7 @@ class IGsDGL(torch.utils.data.Dataset):
         self.split = split
         #self.num_graphs = num_graphs
         
-        data_path = data_dir + "igraph-GTN-%s.pkl" % self.split
+        data_path = data_dir + "igraph-GTN-v2-%s.pkl" % self.split
         with open(data_path, "rb") as f:
             self.data = pickle.load(f)
 
@@ -132,7 +153,7 @@ class IGsDataset(torch.utils.data.Dataset):
         start = time.time()
         print("[I] Loading dataset IGRAPH...")
 
-        with open(data_dir+'igraph-DatasetDGL.pkl', "rb") as f:
+        with open(data_dir+'igraph-DatasetDGL-v2.pkl', "rb") as f:
             data = pickle.load(f)
             # datasetDGL = f
             self.train = data.train
@@ -157,12 +178,18 @@ class IGsDataset(torch.utils.data.Dataset):
         batched_graph = dgl.batch(graphs)     
     
         return batched_graph, labels 
-      
-    def _add_positional_encodings(self, pos_enc_dim):
+    def _add_self_loops(self):
+        # function for adding self loops
+        # this function will be called only if self_loop flag is True
+            
+        self.train.graph_lists = [self_loop(g) for g in self.train.graph_lists]
+        self.val.graph_lists = [self_loop(g) for g in self.val.graph_lists]
+        self.test.graph_lists = [self_loop(g) for g in self.test.graph_lists]  
+    def _add_laplacian_positional_encodings(self, pos_enc_dim):
         # Graph positional encoding v/ Laplacian eigenvectors
-        self.train.graph_lists = [positional_encoding(g, pos_enc_dim) for g in self.train.graph_lists]
-        self.val.graph_lists = [positional_encoding(g, pos_enc_dim) for g in self.val.graph_lists]
-        self.test.graph_lists = [positional_encoding(g, pos_enc_dim) for g in self.test.graph_lists]
+        self.train.graph_lists = [laplacian_positional_encoding(g, pos_enc_dim) for g in self.train.graph_lists]
+        self.val.graph_lists = [laplacian_positional_encoding(g, pos_enc_dim) for g in self.val.graph_lists]
+        self.test.graph_lists = [laplacian_positional_encoding(g, pos_enc_dim) for g in self.test.graph_lists]
   
 class DGLFormDataset(torch.utils.data.Dataset):
     """

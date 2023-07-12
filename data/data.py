@@ -3,7 +3,7 @@
 """
 from data.molecules import MoleculeDataset
 from data.SBMs import SBMsDataset
-from data.IGs_V2 import IGsDataset, IGsDatasetDGL
+from data.IGs import IGsDataset
 
 def LoadData(DATASET_NAME):
     """

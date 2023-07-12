@@ -69,18 +69,12 @@ def laplacian_positional_encoding(g, pos_enc_dim):
     N = sp.diags(dgl.backend.asnumpy(g.in_degrees()).clip(1) ** -0.5, dtype=float)
     L = sp.eye(g.number_of_nodes()) - N * A * N
 
-    # Eigenvectors with scipy
-    # EigVal, EigVec = sp.linalg.eigs(L, k=pos_enc_dim+1, which='SR')
-    # EigVal, EigVec = sp.linalg.eigs(L, k=pos_enc_dim+1, which='SR', tol=1e-2) # for 40 PEs
-    # EigVec = EigVec[:, EigVal.argsort()] # increasing order
-    # g.ndata['lap_pos_enc'] = torch.from_numpy(EigVec[:,1:pos_enc_dim+1]).float()
-    
     # Eigenvectors with numpy
     EigVal, EigVec = np.linalg.eig(L.toarray())
     idx = EigVal.argsort() # increasing order
     EigVal, EigVec = EigVal[idx], np.real(EigVec[:,idx])
-    g.ndata['pos_enc'] = torch.from_numpy(EigVec[:,1:pos_enc_dim+1]).float()  
-
+    g.ndata['lap_pos_enc'] = torch.from_numpy(EigVec[:,1:pos_enc_dim+1]).float() 
+    
     return g
 
 def wl_positional_encoding(g):
