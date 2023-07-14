@@ -2,7 +2,12 @@
 **/*.DS_Store
 **/*.ipynb_checkpoints/
 **/__pycache__
-out/
+out/IGs/checkpoints
+out/IGs/logs
+out/IGs/configs
+
+**/ipynb_checkpoints/
+
 
 #SBM datasets
 data/SBMs/*.pkl
