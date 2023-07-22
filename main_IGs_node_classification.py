@@ -151,7 +151,7 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
                                                      verbose=True)
     
     epoch_train_losses, epoch_val_losses = [], []
-    epoch_train_accs, epoch_val_accs = [], [] 
+    epoch_train_accs, epoch_train_accs_iter, epoch_train_f1s, epoch_val_accs, epoch_val_accs_iter, epoch_val_f1s = [], [], [], [], [], [] 
     
     # import train and evaluate functions
     from train.train_IGs_node_classification import train_epoch, evaluate_network 
@@ -165,21 +165,41 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
 
             start = time.time()
 
-            epoch_train_loss, epoch_train_acc, optimizer, t = train_epoch(model, optimizer, device, train_loader, epoch)
+            # epoch_train_loss, epoch_train_acc, epoch_train_acc_iter, epoch_train_f1, optimizer, t = train_epoch(model, optimizer, device, train_loader, epoch)
+            epoch_train_loss, epoch_train_acc, epoch_train_f1, optimizer, t = train_epoch(model, optimizer, device, train_loader, epoch)
                 
-            epoch_val_loss, epoch_val_acc = evaluate_network(model, device, val_loader, epoch)
-            _, epoch_test_acc = evaluate_network(model, device, test_loader, epoch)        
+            # epoch_val_loss, epoch_val_acc, epoch_val_acc_iter, epoch_val_f1 = evaluate_network(model, device, val_loader, epoch)
+            # _, epoch_test_acc, epoch_test_acc_iter, epoch_test_f1 = evaluate_network(model, device, test_loader, epoch)        
+            epoch_val_loss, epoch_val_acc, epoch_val_f1 = evaluate_network(model, device, val_loader, epoch)
+            _, epoch_test_acc, epoch_test_f1 = evaluate_network(model, device, test_loader, epoch)        
             
             epoch_train_losses.append(epoch_train_loss)
             epoch_val_losses.append(epoch_val_loss)
+            
             epoch_train_accs.append(epoch_train_acc)
+            # epoch_train_accs_iter.append(epoch_train_acc_iter)
+            epoch_train_f1s.append(epoch_train_f1)
+            
             epoch_val_accs.append(epoch_val_acc)
+            # epoch_val_accs_iter.append(epoch_val_acc)
+            epoch_val_f1s.append(epoch_val_acc)
 
             writer.add_scalar('train/_loss', epoch_train_loss, epoch)
             writer.add_scalar('val/_loss', epoch_val_loss, epoch)
+            
             writer.add_scalar('train/_acc', epoch_train_acc, epoch)
             writer.add_scalar('val/_acc', epoch_val_acc, epoch)
             writer.add_scalar('test/_acc', epoch_test_acc, epoch)
+            
+            writer.add_scalar('train/_f1', epoch_train_f1, epoch)
+            writer.add_scalar('val/_f1', epoch_val_f1, epoch)
+            writer.add_scalar('test/_f1', epoch_test_f1, epoch)
+            
+            # # writer.add_scalar('train/_acc_iter', epoch_train_acc_iter, epoch)
+            # # writer.add_scalar('val/_acc_iter', epoch_val_acc_iter, epoch)
+            # # writer.add_scalar('test/_acc_iter', epoch_test_acc_iter, epoch)
+            
+            
             writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], epoch)
 
             per_epoch_time.append(time.time()-start)
@@ -190,11 +210,22 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
                   # f"expected time to end: {(statistics.mean(per_epoch_time)*(params['epochs']-(epoch+1))/3600):.2f} h.| "
                   f"expected time to end: {expected_hours:02d}:{expected_minutes:02d} h. | "
                   f"lr: {optimizer.param_groups[0]['lr']}| "
+                  
                   f"train_loss: {epoch_train_loss:.4f}| "
                   f"val_loss: {epoch_val_loss:.4f}| "
+                  
                   f"train_acc: {epoch_train_acc:.4f}| "
                   f"val_acc: {epoch_val_acc:.4f}| "
-                  f"test_acc: {epoch_test_acc:.4f}\n")
+                  f"test_acc: {epoch_test_acc:.4f}| "
+                  
+                  
+                  # f"train_acc_iter: {epoch_train_acc_iter:.4f}| "
+                  # # f"val_acc_iter: {epoch_val_acc_iter:.4f}| "
+                  # # f"val_acc_iter: {epoch_val_acc_iter:.4f}| "
+                  
+                  f"train_f1: {epoch_train_f1:.4f}| "
+                  f"val_f1: {epoch_val_f1:.4f}| "
+                  f"test_f1: {epoch_test_f1:.4f}\n")
             # Saving checkpoint
             ckpt_dir = os.path.join(root_ckpt_dir, "RUN_")
             if not os.path.exists(ckpt_dir):
@@ -223,27 +254,48 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     except KeyboardInterrupt:
         print('-' * 89)
         print('Exiting from training early because of KeyboardInterrupt')
-    
-    
-    _, test_acc = evaluate_network(model, device, test_loader, epoch)
-    _, train_acc = evaluate_network(model, device, train_loader, epoch)
+        _, test_acc, test_f1 = evaluate_network(model, device, test_loader, epoch)
+        _, train_acc, train_f1 = evaluate_network(model, device, train_loader, epoch)
+        print("Test Accuracy: {:.4f}".format(test_acc))
+        print("Train Accuracy: {:.4f}".format(train_acc))
+        print("Test F1: {:.4f}".format(test_f1))
+        print("Train F1: {:.4f}".format(train_f1))
+        print("Convergence Time (Epochs): {:.4f}".format(epoch))
+        print("TOTAL TIME TAKEN: {:.4f}s".format(time.time()-start0))
+        print("AVG TIME PER EPOCH: {:.4f}s".format(np.mean(per_epoch_time)))
+        writer.close()
+        with open(write_file_name + '.txt', 'w') as f:
+            f.write("""Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n{}\n\nTotal Parameters: {}\n\n
+        FINAL RESULTS\n
+        TEST ACCURACY: {:.4f}\n
+        TRAIN ACCURACY: {:.4f}\n
+        TRAIN F1: {:.4f}\n
+        TEST F1: {:.4f}\n\n
+        Convergence Time (Epochs): {:.4f}\nTotal Time Taken: {:.4f} hrs\nAverage Time Per Epoch: {:.4f} s\n\n\n"""\
+              .format(DATASET_NAME, MODEL_NAME, params, net_params, model, net_params['total_param'],
+                      test_acc, train_acc, train_f1, test_f1, epoch, (time.time()-start0)/3600, np.mean(per_epoch_time)))
+            
+            
+    _, test_acc, test_f1 = evaluate_network(model, device, test_loader, epoch)
+    _, train_acc, train_f1 = evaluate_network(model, device, train_loader, epoch)
     print("Test Accuracy: {:.4f}".format(test_acc))
     print("Train Accuracy: {:.4f}".format(train_acc))
+    print("Test F1: {:.4f}".format(test_f1))
+    print("Train F1: {:.4f}".format(train_f1))
     print("Convergence Time (Epochs): {:.4f}".format(epoch))
     print("TOTAL TIME TAKEN: {:.4f}s".format(time.time()-start0))
     print("AVG TIME PER EPOCH: {:.4f}s".format(np.mean(per_epoch_time)))
-
     writer.close()
-
-    """
-        Write the results in out_dir/results folder
-    """
     with open(write_file_name + '.txt', 'w') as f:
         f.write("""Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n{}\n\nTotal Parameters: {}\n\n
-    FINAL RESULTS\nTEST ACCURACY: {:.4f}\nTRAIN ACCURACY: {:.4f}\n\n
+    FINAL RESULTS\n
+    TEST ACCURACY: {:.4f}\n
+    TRAIN ACCURACY: {:.4f}\n
+    TRAIN F1: {:.4f}\n
+    TEST F1: {:.4f}\n\n
     Convergence Time (Epochs): {:.4f}\nTotal Time Taken: {:.4f} hrs\nAverage Time Per Epoch: {:.4f} s\n\n\n"""\
           .format(DATASET_NAME, MODEL_NAME, params, net_params, model, net_params['total_param'],
-                  test_acc, train_acc, epoch, (time.time()-start0)/3600, np.mean(per_epoch_time)))
+                  test_acc, train_acc, train_f1, test_f1, epoch, (time.time()-start0)/3600, np.mean(per_epoch_time)))
 
         
 
