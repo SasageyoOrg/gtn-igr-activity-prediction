@@ -136,7 +136,7 @@ class IGsDatasetDGL(torch.utils.data.Dataset):
 
         data_dir = "./data/IGs/"
         self.train = IGsDGL(data_dir, 'train')
-        self.val = IGsDGL(data_dir, 'val')
+        # self.val = IGsDGL(data_dir, 'val')
         self.test = IGsDGL(data_dir, 'test')
 
         print("[I] Finished loading.")
@@ -153,11 +153,11 @@ class IGsDataset(torch.utils.data.Dataset):
         start = time.time()
         print("[I] Loading dataset IGRAPH...")
 
-        with open(data_dir+'igraph-DatasetDGL-v2.pkl', "rb") as f:
+        with open(data_dir+'igraph-DatasetDGL-noDup.pkl', "rb") as f:
             data = pickle.load(f)
             # datasetDGL = f
             self.train = data.train
-            self.val = data.val
+            # self.val = data.val
             self.test = data.test
 
         
@@ -165,7 +165,8 @@ class IGsDataset(torch.utils.data.Dataset):
         # self.val = datasetDGL.val
         # self.test = datasetDGL.test
         
-        print('SIZE: train %s, test %s, val %s :' % (len(self.train),len(self.test),len(self.val)))
+        # print('SIZE: train %s, test %s, val %s :' % (len(self.train),len(self.test),len(self.val)))
+        print('SIZE: train %s, test %s:' % (len(self.train),len(self.test)))
         print("[I] Finished loading.")
         print("[I] Data load time: {:.4f}s".format(time.time()-start))
         print(f"Data instance example: {self.train[0][0]}")
@@ -183,12 +184,12 @@ class IGsDataset(torch.utils.data.Dataset):
         # this function will be called only if self_loop flag is True
             
         self.train.graph_lists = [self_loop(g) for g in self.train.graph_lists]
-        self.val.graph_lists = [self_loop(g) for g in self.val.graph_lists]
+        # self.val.graph_lists = [self_loop(g) for g in self.val.graph_lists]
         self.test.graph_lists = [self_loop(g) for g in self.test.graph_lists]  
     def _add_laplacian_positional_encodings(self, pos_enc_dim):
         # Graph positional encoding v/ Laplacian eigenvectors
         self.train.graph_lists = [laplacian_positional_encoding(g, pos_enc_dim) for g in self.train.graph_lists]
-        self.val.graph_lists = [laplacian_positional_encoding(g, pos_enc_dim) for g in self.val.graph_lists]
+        # self.val.graph_lists = [laplacian_positional_encoding(g, pos_enc_dim) for g in self.val.graph_lists]
         self.test.graph_lists = [laplacian_positional_encoding(g, pos_enc_dim) for g in self.test.graph_lists]
   
 class DGLFormDataset(torch.utils.data.Dataset):
