@@ -1,8 +1,7 @@
 """
     File to load dataset based on user control from main file
 """
-from data.molecules import MoleculeDataset
-from data.SBMs import SBMsDataset
+
 from data.IGs_V2 import IGsDataset
 
 def LoadData(DATASET_NAME):
