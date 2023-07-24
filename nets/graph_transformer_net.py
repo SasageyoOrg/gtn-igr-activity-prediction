@@ -34,7 +34,7 @@ class GraphTransformerNet(nn.Module):
         self.device = net_params['device']
         self.lap_pos_enc = net_params['lap_pos_enc']
         self.wl_pos_enc = net_params['wl_pos_enc']
-        max_wl_role_index = 77 
+        max_wl_role_index = 16
         
         if self.lap_pos_enc:
             pos_enc_dim = net_params['pos_enc_dim']
@@ -64,8 +64,8 @@ class GraphTransformerNet(nn.Module):
         
         if self.lap_pos_enc:
             h_lap_pos_enc = self.embedding_lap_pos_enc(h_lap_pos_enc.float()) 
-            h = h + h_lap_pos_enc
-            # h = h_lap_pos_enc
+            # h = h + h_lap_pos_enc
+            h = h_lap_pos_enc
         if self.wl_pos_enc:
             h_wl_pos_enc = self.embedding_wl_pos_enc(h_wl_pos_enc) 
             h = h + h_wl_pos_enc
@@ -95,10 +95,10 @@ class GraphTransformerNet(nn.Module):
         V = label.size(0)
         label_count = torch.bincount(label)
         label_count = label_count[label_count.nonzero()].squeeze()
-        cluster_sizes = torch.zeros(self.n_classes).long().to(self.device)
-        cluster_sizes[torch.unique(label)] = label_count
-        weight = (V - cluster_sizes).float() / V
-        weight *= (cluster_sizes>0).float()
+        class_sizes = torch.zeros(self.n_classes).long().to(self.device)
+        class_sizes[torch.unique(label)] = label_count
+        weight = (V - class_sizes).float() / V
+        weight *= (class_sizes>0).float()
         
         criterion = nn.CrossEntropyLoss(weight=weight)
         # criterion = nn.CrossEntropyLoss()

@@ -1,1 +1,1 @@
-python main_IGs_node_classification.py --dataset IG --config configs/IG_GraphTransformer.json
+python main_IGs_kfold_node_classification.py --dataset IG --config configs/IG_GraphTransformer.json

@@ -1,33 +1,25 @@
 """
-    IMPORTING LIBS
+# ---------------------------------------------------------------------------- #
+#                                IMPORTING LIBS                                #
+# ---------------------------------------------------------------------------- #
 """
 
-import dgl
 
 import numpy as np
 import os
-import socket
 import time
 import random
 import glob
 import argparse, json
-import pickle
 import statistics
-import datetime
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torch.utils.data import WeightedRandomSampler
-from torch.utils.data import Subset, SubsetRandomSampler
+from torch.utils.data import SubsetRandomSampler
 from sklearn.model_selection import KFold
 from train.train_IGs_node_classification import train_epoch, evaluate_network 
-
-
-from tqdm import tqdm
 
 class DotDict(dict):
     def __init__(self, **kwds):
@@ -35,18 +27,16 @@ class DotDict(dict):
         self.__dict__ = self
 
 
-"""
-    IMPORTING CUSTOM MODULES/METHODS
-"""
-from nets.SBMs_node_classification.load_net import gnn_model 
-from data.data import LoadData 
+# --------------------- IMPORTING CUSTOM MODULES/METHODS --------------------- #
+from nets.load_net import gnn_model 
+from data.data import LoadData
 
-
-
-
-"""
-    GPU Setup
-"""
+'''
+# ---------------------------------------------------------------------------- #
+#                               UTILTY FUNCTIONS                               #
+# ---------------------------------------------------------------------------- #
+'''
+# --------------------------------- GPU Setup -------------------------------- #
 def gpu_setup(use_gpu, gpu_id):
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)  
@@ -60,17 +50,7 @@ def gpu_setup(use_gpu, gpu_id):
     return device
 
 
-
-
-
-
-
-
-
-
-"""
-    VIEWING MODEL CONFIG AND PARAMS
-"""
+# ---------------------- VIEWING MODEL CONFIG AND PARAMS --------------------- #
 def view_model_param(MODEL_NAME, net_params):
     model = gnn_model(MODEL_NAME, net_params)
     total_param = 0
@@ -82,11 +62,11 @@ def view_model_param(MODEL_NAME, net_params):
     print('MODEL/Total parameters:', MODEL_NAME, total_param)
     return total_param
 
-
-"""
-    TRAINING CODE
-"""
-
+'''
+# ---------------------------------------------------------------------------- #
+#                                 TRAINING CODE                                #
+# ---------------------------------------------------------------------------- #
+'''
 def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     start0 = time.time()
     per_epoch_time = []
@@ -153,6 +133,9 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     
     epoch_train_losses, epoch_val_losses = [], []   
     epoch_train_accs, epoch_train_f1s, epoch_val_accs, epoch_val_f1s = [], [], [], []
+    
+    # for fold evaluation
+    train_accs, train_f1s = [], []
     test_accs, test_f1s = [], []
 
     
@@ -178,7 +161,7 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
                                 batch_size=params['batch_size'], 
                                 collate_fn=dataset.collate, 
                                 sampler=test_subsampler)
-        
+        print("\n\n-------------------------------------------------------------- ")
         print(f"\nTraining Fold {fold + 1}/{params['kfold_splits']}")
         
         # ... (same steps as in the original train pipeline, but applied to each fold)
@@ -209,7 +192,7 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
 
 
                 per_epoch_time.append(time.time()-start)
-                expected_time_seconds = statistics.mean(per_epoch_time) * (params['epochs'] - (epoch + 1)) * (params['kfold_splits']-fold)
+                expected_time_seconds = statistics.mean(per_epoch_time) * (params['epochs'] - epoch) * (params['kfold_splits']-fold)
                 expected_hours = int(expected_time_seconds // 3600)
                 expected_minutes = int((expected_time_seconds % 3600) // 60)
                 print(f"  train time: {per_epoch_time[-1]:.4f}| "
@@ -254,51 +237,59 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
         except KeyboardInterrupt:
             print('-' * 89)
             print('Exiting from training early because of KeyboardInterrupt')
-            _, test_acc, test_f1 = evaluate_network(model, device, test_loader, epoch)
-            _, train_acc, train_f1 = evaluate_network(model, device, train_loader, epoch)
-            print("Test Accuracy: {:.4f}".format(test_acc))
-            print("Train Accuracy: {:.4f}".format(train_acc))
-            print("Test F1: {:.4f}".format(test_f1))
-            print("Train F1: {:.4f}".format(train_f1))
-            print("Convergence Time (Epochs): {:.4f}".format(epoch))
-            print("TOTAL TIME TAKEN: {:.4f}s".format(time.time()-start0))
-            print("AVG TIME PER EPOCH: {:.4f}s".format(np.mean(per_epoch_time)))
-            with open(write_file_name + '.txt', 'w') as f:
-                f.write("""Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n{}\n\nTotal Parameters: {}\n\n
-            FINAL RESULTS\n
-            TEST ACCURACY: {:.4f}\n
-            TRAIN ACCURACY: {:.4f}\n
-            TRAIN F1: {:.4f}\n
-            TEST F1: {:.4f}\n\n
-            Convergence Time (Epochs): {:.4f}\nTotal Time Taken: {:.4f} hrs\nAverage Time Per Epoch: {:.4f} s\n\n\n"""\
-                  .format(DATASET_NAME, MODEL_NAME, params, net_params, model, net_params['total_param'],
-                          test_acc, train_acc, train_f1, test_f1, epoch, (time.time()-start0)/3600, np.mean(per_epoch_time)))
                 
         # After each fold, we evaluate the model on the test set
         test_loss, test_acc, test_f1 = evaluate_network(model, device, test_loader, epoch)
+        train_loss, train_acc, train_f1 = evaluate_network(model, device, train_loader, epoch)
 
+        train_accs.append(train_acc)
+        train_f1s.append(train_f1)
         test_accs.append(test_acc)
         test_f1s.append(test_f1)
 
         print(f"\nFold {fold + 1}/{params['kfold_splits']}")
-        print(f"Test Accuracy: {test_acc:.4f}")
-        print(f"Test F1 Score: {test_f1:.4f}")
+        print(f"Train Loss: {train_loss:.4f} | Test Loss: {test_loss:.4f}")
+        print(f"Train Accuracy: {train_acc:.4f} | Test Accuracy: {test_acc:.4f}")
+        print(f"Train F1 Score: {train_f1:.4f} | Test F1 Score: {test_f1:.4f}")
         
     # ... (calculating average performance metrics and saving model as in the original train pipeline)
+    avg_train_acc = sum(train_accs) / len(train_accs)
     avg_test_acc = sum(test_accs) / len(test_accs)
+    
+    avg_train_f1 = sum(train_f1s) / len(train_f1s)
     avg_test_f1 = sum(test_f1s) / len(test_f1s)
 
-    print(f"\nAverage Test Accuracy: {avg_test_acc:.4f}")
-    print(f"Average Test F1 Score: {avg_test_f1:.4f}")
+    print(f"\nFinal Train Loss: {train_loss:.4f} | Final Test Loss: {test_loss:.4f}")
+    print(f"Average Train Accuracy: {avg_train_acc:.4f} | Average Test Accuracy: {avg_test_acc:.4f}")
+    print(f"Average Train F1 Score: {avg_train_f1:.4f} | Average Test F1 Score: {avg_test_f1:.4f}")
+
+    print("\nTOTAL TIME TAKEN: {:.4f}s".format(time.time()-start0))
+    print("AVG TIME PER EPOCH: {:.4f}s".format(np.mean(per_epoch_time)))
+    
+    # Writing on file
+    with open(write_file_name + '.txt', 'w') as f:
+        f.write("""Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n{}\n\nTotal Parameters: {}\n\n
+    FINAL RESULTS\n
+    FINAL TRAIN LOSS: {:.4f}\n
+    FINAL TEST LOSS: {:.4f}\n
+    AVG TRAIN ACCURACY: {:.4f}\n
+    AVG TEST ACCURACY: {:.4f}\n
+    AVG TRAIN F1: {:.4f}\n
+    AVG TEST F1: {:.4f}\n\n
+    Total Time Taken: {:.4f} hrs\n
+    Average Time Per Epoch: {:.4f} s\n\n\n"""\
+      .format(DATASET_NAME, MODEL_NAME, params, net_params, model, net_params['total_param'],
+              test_acc, train_acc, train_f1, test_f1, epoch, (time.time()-start0)/3600, np.mean(per_epoch_time)))
             
 
 
-
-
+'''
+# ---------------------------------------------------------------------------- #
+#                                     MAIN                                     #
+# ---------------------------------------------------------------------------- #
+'''
 def main():    
-    """
-        USER CONTROLS
-    """
+# ------------------------------- USER CONTROLS ------------------------------ #
     
     
     parser = argparse.ArgumentParser()
@@ -337,7 +328,8 @@ def main():
     with open(args.config) as f:
         config = json.load(f)
         
-    # device
+# ---------------------------------- device ---------------------------------- #
+
     if args.gpu_id is not None:
         config['gpu']['id'] = int(args.gpu_id)
         config['gpu']['use'] = True
@@ -356,9 +348,10 @@ def main():
         out_dir = args.out_dir
     else:
         out_dir = config['out_dir']
-    # parameters
+        
+# -------------------------------- parameters -------------------------------- #
+
     params = config['params']
-    
     if args.seed is not None:
         params['seed'] = int(args.seed)
     if args.kfold_splits is not None:
@@ -381,7 +374,9 @@ def main():
         params['print_epoch_interval'] = int(args.print_epoch_interval)
     if args.max_time is not None:
         params['max_time'] = float(args.max_time)
-    # network parameters
+        
+# ---------------------------- network parameters ---------------------------- #
+
     net_params = config['net_params']
     net_params['device'] = device
     net_params['gpu_id'] = config['gpu']['id']
@@ -417,7 +412,8 @@ def main():
     if args.wl_pos_enc is not None:
         net_params['wl_pos_enc'] = True if args.pos_enc=='True' else False
         
-    # IGs
+# ------------------------------------ IGs ----------------------------------- #
+
     net_params['in_dim'] = torch.unique(dataset.train[0][0].ndata['feat'],dim=0).size(0)
     # net_params['in_dim'] = 0
     net_params['in_dim_edge'] = torch.unique(dataset.train[0][0].edata['feat'],dim=0).size(0)
@@ -430,7 +426,7 @@ def main():
     root_log_dir = out_dir + 'logs/' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
     root_ckpt_dir = out_dir + 'checkpoints/' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
     write_file_name = out_dir + 'results/result_' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
-    write_config_file = out_dir + 'configs/config_' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
+    write_config_file = out_dir + 'configs/config_' + MODEL_NAME + "_KFold_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
     dirs = root_log_dir, root_ckpt_dir, write_file_name, write_config_file
 
     if not os.path.exists(out_dir + 'results'):
@@ -442,9 +438,6 @@ def main():
     net_params['total_param'] = view_model_param(MODEL_NAME, net_params)
     train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs)
 
-    
-    
-    
 main()    
 
 

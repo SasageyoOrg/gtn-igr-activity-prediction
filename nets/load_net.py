@@ -3,7 +3,7 @@
     selected by the user
 """
 
-from nets.SBMs_node_classification.graph_transformer_net import GraphTransformerNet
+from nets.graph_transformer_net import GraphTransformerNet
 
 def GraphTransformer(net_params):
     return GraphTransformerNet(net_params)
