@@ -12,13 +12,14 @@ import random
 import glob
 import argparse, json
 import statistics
+import matplotlib.pyplot as plt
 
 import torch
 
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.data import SubsetRandomSampler
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
 from train.train_IGs_node_classification import train_epoch, evaluate_network 
 
 class DotDict(dict):
@@ -67,7 +68,7 @@ def view_model_param(MODEL_NAME, net_params):
 #                                 TRAINING CODE                                #
 # ---------------------------------------------------------------------------- #
 '''
-def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
+def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs, classes):
     start0 = time.time()
     per_epoch_time = []
     DATASET_NAME = dataset.name
@@ -98,8 +99,13 @@ def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
         print('Time taken to convert to full graphs:',time.time()-st)
 
     trainset = dataset.train
+    # Assuming datasetDGL.train[:][1] is the list of tensors
+    tensor_list = trainset[:][1]
+
+    # Extract the numbers from the tensors using list comprehension
+    labels_list = [tensor.item() for tensor in tensor_list]
         
-    root_log_dir, root_ckpt_dir, write_file_name, write_config_file = dirs
+    root_log_dir, root_ckpt_dir, root_plots_dir,write_file_name, write_config_file = dirs
     device = net_params['device']
     
     # Write network and optimization hyper-parameters in folder config/
@@ -129,17 +135,19 @@ def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
                                                      verbose=True)
     
     
-    epoch_train_losses, epoch_test_losses = [], []   
-    epoch_train_accs, epoch_train_f1s, epoch_test_accs, epoch_test_f1s = [], [], [], []
+
+    
+    # for fold evaluation
+    train_accs, train_f1s, test_accs, test_f1s = [], [], [], []
         
-    kf = KFold(n_splits=params['kfold_splits'], shuffle=True, random_state=params['seed'])
+    skf = StratifiedKFold(n_splits=params['kfold_splits'], shuffle=True, random_state=params['seed'])
     # At any point you can hit Ctrl + C to break out of training early.
-    for fold, (train_idx, test_idx) in enumerate(kf.split(trainset)):
+    for fold, (train_idx, test_idx) in enumerate(skf.split(trainset, labels_list)):
       
-        # Create data loaders for this fold
-        # train_fold = Subset(trainset, train_idx)
-        # test_fold = Subset(trainset, test_idx)
+        epoch_train_losses , epoch_train_accs, epoch_train_f1s = [], [], []
+        epoch_test_losses , epoch_test_accs, epoch_test_f1s = [], [], []
         
+        # Create data loaders for this fold
         train_subsampler = SubsetRandomSampler(train_idx)
         test_subsampler = SubsetRandomSampler(test_idx)
 
@@ -147,7 +155,6 @@ def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
                                   batch_size=params['batch_size'],
                                   collate_fn=dataset.collate, 
                                   sampler=train_subsampler)
-        
         test_loader = DataLoader(trainset, 
                                 batch_size=params['batch_size'], 
                                 collate_fn=dataset.collate, 
@@ -166,10 +173,17 @@ def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
                 start = time.time()
 
                 epoch_train_loss, epoch_train_acc, epoch_train_f1, optimizer, t = train_epoch(model, optimizer, device, train_loader, epoch)
+                # epoch_train_loss, epoch_train_acc, epoch_train_f1 = evaluate_network(model, device, train_loader, epoch)
+                epoch_test_loss, epoch_test_acc, epoch_test_f1 = evaluate_network(model, device, test_loader, epoch)
+
 
                 epoch_train_losses.append(epoch_train_loss)
                 epoch_train_accs.append(epoch_train_acc)
                 epoch_train_f1s.append(epoch_train_f1)
+                
+                epoch_test_losses.append(epoch_test_loss)
+                epoch_test_accs.append(epoch_test_acc)
+                epoch_test_f1s.append(epoch_test_f1)
 
                 per_epoch_time.append(time.time()-start)
                 expected_time_seconds = statistics.mean(per_epoch_time) * (params['epochs'] - epoch) * (params['kfold_splits']-fold)
@@ -179,24 +193,25 @@ def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
                 print(f"  train time: {per_epoch_time[-1]:.4f}| "
                       f"expected time to end: {expected_hours:02d}:{expected_minutes:02d} h. | "
                       f"lr: {optimizer.param_groups[0]['lr']}| "
+                      
                       f"train_loss: {epoch_train_loss:.4f}| "
+                      f"test_loss: {epoch_test_loss:.4f}| "
                       f"train_acc: {epoch_train_acc:.4f}| "
-                      f"train_f1: {epoch_train_f1:.4f}|\n")
+                      f"test_acc: {epoch_test_acc:.4f}| "
+                      f"train_f1: {epoch_train_f1:.4f}| "
+                      f"test_f1: {epoch_test_f1:.4f}|\n")
                 
-                # Saving checkpoint
-                ckpt_dir = os.path.join(root_ckpt_dir, "RUN_")
-                if not os.path.exists(ckpt_dir):
-                    os.makedirs(ckpt_dir)
-                torch.save(model.state_dict(), '{}.pkl'.format(ckpt_dir + "/epoch_" + str(epoch)))
+                
+                # torch.save(model.state_dict(), '{}.pkl'.format(ckpt_dir + "/epoch_" + str(epoch)))
 
-                files = glob.glob(ckpt_dir + '/*.pkl')
-                for file in files:
-                    epoch_nb = file.split('_')[-1]
-                    epoch_nb = int(epoch_nb.split('.')[0])
-                    if epoch_nb < epoch-1:
-                        os.remove(file)
+                # files = glob.glob(ckpt_dir + '/*.pkl')
+                # for file in files:
+                #     epoch_nb = file.split('_')[-1]
+                #     epoch_nb = int(epoch_nb.split('.')[0])
+                #     if epoch_nb < epoch-1:
+                #         os.remove(file)
 
-                scheduler.step(epoch_train_loss)
+                scheduler.step(epoch_test_loss)
 
                 if optimizer.param_groups[0]['lr'] < params['min_lr']:
                     print("\n!! LR SMALLER OR EQUAL TO MIN LR THRESHOLD.")
@@ -211,10 +226,58 @@ def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
         except KeyboardInterrupt:
             print('-' * 89)
             print('Exiting from training early because of KeyboardInterrupt')
-                
+        
+        # Saving checkpoint
+        ckpt_dir = os.path.join(root_ckpt_dir, "RUN_")
+        if not os.path.exists(ckpt_dir):
+            os.makedirs(ckpt_dir)
+        torch.save({
+          'epoch': epoch,
+          'model_state_dict': model.state_dict(),
+          'optimizer_state_dict': optimizer.state_dict(),
+          'loss': epoch_train_loss,
+        }, ckpt_dir + "/fold_" + str(fold+1))
+        
+        
+        # Plot loss curve for the fold
+        plots_dir = os.path.join(root_plots_dir, f"fold_{str(fold+1)}")
+        if not os.path.exists(plots_dir):
+            os.makedirs(plots_dir)
+        plt.plot(range(epoch+1), epoch_train_losses, label=f"Fold {fold+1} Train Loss")
+        plt.plot(range(epoch+1), epoch_test_losses, label=f"Fold {fold+1} Test Loss")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title(f"Loss Curve - Fold {fold+1}")
+        plt.legend()
+        plt.savefig(os.path.join(plots_dir, f"fold_{fold+1}_loss_curve.png"))
+        plt.close() 
+        
+        
         # After each fold, we evaluate the model on the test set
-        test_loss, test_acc, test_f1 = evaluate_network(model, device, test_loader, epoch)
         train_loss, train_acc, train_f1 = evaluate_network(model, device, train_loader, epoch)
+        test_loss, test_acc, test_f1 = evaluate_network(model, device, test_loader, epoch)
+
+        # # Plot the ROC curve
+        # plt.plot(fpr, tpr, label=f'ROC Curve (AUC = {roc_auc:.2f})')
+        # plt.plot([0, 1], [0, 1], 'k--')  # Plot the diagonal line
+        # plt.xlabel('False Positive Rate')
+        # plt.ylabel('True Positive Rate')
+        # plt.title('Receiver Operating Characteristic (ROC) Curve')
+        # plt.legend()
+        # plt.savefig(os.path.join(plots_dir, f"fold_{fold+1}_ROC_curve.png"))
+        
+
+        
+        # Plot the confusion matrix
+        # plt.imshow(confusion_mat, cmap='Blues')
+        # plt.title(f"Confusion Matrix - Fold {fold+1}")
+        # plt.colorbar()
+        # plt.xlabel('Predicted Label')
+        # plt.ylabel('True Label')
+        # plt.xticks(np.arange(len(classes)), classes, rotation=45)
+        # plt.yticks(np.arange(len(classes)), classes)
+        # plt.savefig(os.path.join(plots_dir, f"fold_{fold+1}_CM_.png"))
+        # plt.close() 
 
         train_accs.append(train_acc)
         train_f1s.append(train_f1)
@@ -227,33 +290,41 @@ def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
         print(f"Train F1 Score: {train_f1:.4f} | Test F1 Score: {test_f1:.4f}")
         
     # ... (calculating average performance metrics and saving model as in the original train pipeline)
-    avg_train_acc = sum(train_accs) / len(train_accs)
-    avg_test_acc = sum(test_accs) / len(test_accs)
+    avg_train_acc = np.mean(train_accs)
+    avg_test_acc = np.mean(test_accs)
+
+    std_train_acc = np.std(train_accs)
+    std_test_acc = np.std(test_accs)
     
-    avg_train_f1 = sum(train_f1s) / len(train_f1s)
-    avg_test_f1 = sum(test_f1s) / len(test_f1s)
+    avg_train_f1 = np.mean(train_f1s)
+    avg_test_f1 = np.mean(test_f1s)
+
+    std_train_f1 = np.std(train_f1s)
+    std_test_f1 = np.std(test_f1s)
 
     print(f"\nFinal Train Loss: {train_loss:.4f} | Final Test Loss: {test_loss:.4f}")
-    print(f"Average Train Accuracy: {avg_train_acc:.4f} | Average Test Accuracy: {avg_test_acc:.4f}")
-    print(f"Average Train F1 Score: {avg_train_f1:.4f} | Average Test F1 Score: {avg_test_f1:.4f}")
+    print(f"Average Train Accuracy: {avg_train_acc*100:.2f}% (+/- {std_train_acc*100:.2f}%) | Average Test Accuracy: {avg_test_acc*100:.2f}% (+/- {std_test_acc*100:.2f}%)")
+    print(f"Average Train F1 Score: {avg_train_f1*100:.2f}% ({std_train_f1*100:.2f}%) | Average Test F1 Score: {avg_test_f1*100:.2f}% ({std_test_f1*100:.2f}%)")
 
-    print("\nTOTAL TIME TAKEN: {:.4f}s".format(time.time()-start0))
+    print("\nTOTAL TIME TAKEN: {:.4f}s".format(time.time()-start0)) 
     print("AVG TIME PER EPOCH: {:.4f}s".format(np.mean(per_epoch_time)))
     
     # Writing on file
     with open(write_file_name + '.txt', 'w') as f:
         f.write("""Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n{}\n\nTotal Parameters: {}\n\n
     FINAL RESULTS\n
-    FINAL TRAIN LOSS: {:.4f}\n
-    FINAL TEST LOSS: {:.4f}\n
-    AVG TRAIN ACCURACY: {:.4f}\n
-    AVG TEST ACCURACY: {:.4f}\n
-    AVG TRAIN F1: {:.4f}\n
-    AVG TEST F1: {:.4f}\n\n
+    Avg Train Acc: {:.2f} +/- ({:.2f})
+    Avg Test Acc: {:.2f} +/- ({:.2f})\n
+    Avg Train F1: {:.2f} +/- ({:.2f})
+    Avg Test F1: {:.2f} +/- ({:.2f})\n\n
     Total Time Taken: {:.4f} hrs\n
     Average Time Per Epoch: {:.4f} s\n\n\n"""\
       .format(DATASET_NAME, MODEL_NAME, params, net_params, model, net_params['total_param'],
-              test_acc, train_acc, train_f1, test_f1, epoch, (time.time()-start0)/3600, np.mean(per_epoch_time)))
+              avg_train_acc*100, std_train_acc*100,
+              avg_test_acc*100, std_test_acc*100,
+              avg_train_f1*100, std_train_f1*100,
+              avg_test_f1*100, std_test_f1*100,
+              (time.time()-start0)/3600, np.mean(per_epoch_time)))
             
 
 
@@ -399,9 +470,10 @@ def main():
     
     root_log_dir = out_dir + 'logs/' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
     root_ckpt_dir = out_dir + 'checkpoints/' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
+    root_plots_dir = out_dir + 'plots/' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
     write_file_name = out_dir + 'results/result_' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
     write_config_file = out_dir + 'configs/config_' + MODEL_NAME + "_KFold_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
-    dirs = root_log_dir, root_ckpt_dir, write_file_name, write_config_file
+    dirs = root_log_dir, root_ckpt_dir, root_plots_dir, write_file_name, write_config_file
 
     if not os.path.exists(out_dir + 'results'):
         os.makedirs(out_dir + 'results')
@@ -410,7 +482,7 @@ def main():
         os.makedirs(out_dir + 'configs')
 
     net_params['total_param'] = view_model_param(MODEL_NAME, net_params)
-    train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs)
+    train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs, classes)
 
 main()    
 
