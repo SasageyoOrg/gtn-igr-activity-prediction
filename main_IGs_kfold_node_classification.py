@@ -22,6 +22,9 @@ from torch.utils.data import SubsetRandomSampler
 from sklearn.model_selection import StratifiedKFold
 from train.train_IGs_node_classification import train_epoch, evaluate_network 
 
+import warnings
+warnings.filterwarnings('ignore') 
+
 class DotDict(dict):
     def __init__(self, **kwds):
         self.update(kwds)
@@ -174,16 +177,16 @@ def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs, classes):
 
                 epoch_train_loss, epoch_train_acc, epoch_train_f1, optimizer, t = train_epoch(model, optimizer, device, train_loader, epoch)
                 # epoch_train_loss, epoch_train_acc, epoch_train_f1 = evaluate_network(model, device, train_loader, epoch)
-                epoch_test_loss, epoch_test_acc, epoch_test_f1 = evaluate_network(model, device, test_loader, epoch)
+                # epoch_test_loss, epoch_test_acc, epoch_test_f1 = evaluate_network(model, device, test_loader, epoch)
 
 
                 epoch_train_losses.append(epoch_train_loss)
                 epoch_train_accs.append(epoch_train_acc)
                 epoch_train_f1s.append(epoch_train_f1)
                 
-                epoch_test_losses.append(epoch_test_loss)
-                epoch_test_accs.append(epoch_test_acc)
-                epoch_test_f1s.append(epoch_test_f1)
+                # epoch_test_losses.append(epoch_test_loss)
+                # epoch_test_accs.append(epoch_test_acc)
+                # epoch_test_f1s.append(epoch_test_f1)
 
                 per_epoch_time.append(time.time()-start)
                 expected_time_seconds = statistics.mean(per_epoch_time) * (params['epochs'] - epoch) * (params['kfold_splits']-fold)
@@ -194,12 +197,12 @@ def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs, classes):
                       f"expected time to end: {expected_hours:02d}:{expected_minutes:02d} h. | "
                       f"lr: {optimizer.param_groups[0]['lr']}| "
                       
-                      f"train_loss: {epoch_train_loss:.4f}| "
-                      f"test_loss: {epoch_test_loss:.4f}| "
+                      f"loss: {epoch_train_loss:.4f}| "
+                      # f"test_loss: {epoch_test_loss:.4f}| "
                       f"train_acc: {epoch_train_acc:.4f}| "
-                      f"test_acc: {epoch_test_acc:.4f}| "
-                      f"train_f1: {epoch_train_f1:.4f}| "
-                      f"test_f1: {epoch_test_f1:.4f}|\n")
+                      # f"test_acc: {epoch_test_acc:.4f}| "
+                      f"train_f1: {epoch_train_f1:.4f}|\n") 
+                      # f"test_f1: {epoch_test_f1:.4f}|\n"
                 
                 
                 # torch.save(model.state_dict(), '{}.pkl'.format(ckpt_dir + "/epoch_" + str(epoch)))
@@ -211,7 +214,7 @@ def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs, classes):
                 #     if epoch_nb < epoch-1:
                 #         os.remove(file)
 
-                scheduler.step(epoch_test_loss)
+                scheduler.step(epoch_train_loss)
 
                 if optimizer.param_groups[0]['lr'] < params['min_lr']:
                     print("\n!! LR SMALLER OR EQUAL TO MIN LR THRESHOLD.")
