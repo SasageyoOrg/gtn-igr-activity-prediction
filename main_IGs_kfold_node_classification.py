@@ -71,7 +71,7 @@ def view_model_param(MODEL_NAME, net_params):
 #                                 TRAINING CODE                                #
 # ---------------------------------------------------------------------------- #
 '''
-def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
+def train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs, classes):
     start0 = time.time()
     per_epoch_time = []
     DATASET_NAME = dataset.name
@@ -101,7 +101,12 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
         dataset._make_full_graph()
         print('Time taken to convert to full graphs:',time.time()-st)
 
-    trainset, testset = dataset.train, dataset.test
+    trainset = dataset.train
+    # Assuming datasetDGL.train[:][1] is the list of tensors
+    tensor_list = trainset[:][1]
+
+    # Extract the numbers from the tensors using list comprehension
+    labels_list = [tensor.item() for tensor in tensor_list]
         
     root_log_dir, root_ckpt_dir, root_plots_dir,write_file_name, write_config_file = dirs
     device = net_params['device']
@@ -119,8 +124,6 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     if device.type == 'cuda':
         torch.cuda.manual_seed(params['seed'])
     
-    print("Training Graphs: ", len(trainset))
-    print("Test Graphs: ", len(testset))
     print("Number of Classes: ", net_params['n_classes'], "\n")
 
 
@@ -135,33 +138,27 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
                                                      verbose=True)
     
     
-    epoch_train_losses, epoch_val_losses = [], []   
-    epoch_train_accs, epoch_train_f1s, epoch_val_accs, epoch_val_f1s = [], [], [], []
-    
-    # for fold evaluation
-    train_accs, train_f1s = [], []
-    test_accs, test_f1s = [], []
 
     
-    test_loader = DataLoader(testset, batch_size=params['batch_size'], shuffle=False, collate_fn=dataset.collate)
+    # for fold evaluation
+    train_accs, train_f1s, test_accs, test_f1s = [], [], [], []
         
     skf = StratifiedKFold(n_splits=params['kfold_splits'], shuffle=True, random_state=params['seed'])
     # At any point you can hit Ctrl + C to break out of training early.
-    for fold, (train_idx, val_idx) in enumerate(kf.split(trainset)):
+    for fold, (train_idx, test_idx) in enumerate(skf.split(trainset, labels_list)):
       
-        # Create data loaders for this fold
-        # train_fold = Subset(trainset, train_idx)
-        # val_fold = Subset(trainset, val_idx)
+        epoch_train_losses , epoch_train_accs, epoch_train_f1s = [], [], []
+        epoch_test_losses , epoch_test_accs, epoch_test_f1s = [], [], []
         
+        # Create data loaders for this fold
         train_subsampler = SubsetRandomSampler(train_idx)
-        test_subsampler = SubsetRandomSampler(val_idx)
+        test_subsampler = SubsetRandomSampler(test_idx)
 
         train_loader = DataLoader(trainset, 
                                   batch_size=params['batch_size'],
                                   collate_fn=dataset.collate, 
                                   sampler=train_subsampler)
-        
-        val_loader = DataLoader(trainset, 
+        test_loader = DataLoader(trainset, 
                                 batch_size=params['batch_size'], 
                                 collate_fn=dataset.collate, 
                                 sampler=test_subsampler)
@@ -179,54 +176,45 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
                 start = time.time()
 
                 epoch_train_loss, epoch_train_acc, epoch_train_f1, optimizer, t = train_epoch(model, optimizer, device, train_loader, epoch)
-                
-                epoch_val_loss, epoch_val_acc, epoch_val_f1 = evaluate_network(model, device, val_loader, epoch)
-                
-                # losses
+                # epoch_train_loss, epoch_train_acc, epoch_train_f1 = evaluate_network(model, device, train_loader, epoch)
+                # epoch_test_loss, epoch_test_acc, epoch_test_f1 = evaluate_network(model, device, test_loader, epoch)
+
+
                 epoch_train_losses.append(epoch_train_loss)
-                epoch_val_losses.append(epoch_val_loss)
-                
-                # accuracies
                 epoch_train_accs.append(epoch_train_acc)
                 epoch_train_f1s.append(epoch_train_f1)
                 
-                # f1s
-                epoch_val_accs.append(epoch_val_acc)
-                epoch_val_f1s.append(epoch_val_acc)
-
+                # epoch_test_losses.append(epoch_test_loss)
+                # epoch_test_accs.append(epoch_test_acc)
+                # epoch_test_f1s.append(epoch_test_f1)
 
                 per_epoch_time.append(time.time()-start)
                 expected_time_seconds = statistics.mean(per_epoch_time) * (params['epochs'] - epoch) * (params['kfold_splits']-fold)
                 expected_hours = int(expected_time_seconds // 3600)
                 expected_minutes = int((expected_time_seconds % 3600) // 60)
+                
                 print(f"  train time: {per_epoch_time[-1]:.4f}| "
-                      
                       f"expected time to end: {expected_hours:02d}:{expected_minutes:02d} h. | "
                       f"lr: {optimizer.param_groups[0]['lr']}| "
                       
-                      f"train_loss: {epoch_train_loss:.4f}| "
-                      f"val_loss: {epoch_val_loss:.4f}| "
-                      
+                      f"loss: {epoch_train_loss:.4f}| "
+                      # f"test_loss: {epoch_test_loss:.4f}| "
                       f"train_acc: {epoch_train_acc:.4f}| "
-                      f"val_acc: {epoch_val_acc:.4f}| "
+                      # f"test_acc: {epoch_test_acc:.4f}| "
+                      f"train_f1: {epoch_train_f1:.4f}|\n") 
+                      # f"test_f1: {epoch_test_f1:.4f}|\n"
+                
+                
+                # torch.save(model.state_dict(), '{}.pkl'.format(ckpt_dir + "/epoch_" + str(epoch)))
 
-                      
-                      f"train_f1: {epoch_train_f1:.4f}| "
-                      f"val_f1: {epoch_val_f1:.4f}\n")
-                # Saving checkpoint
-                ckpt_dir = os.path.join(root_ckpt_dir, "RUN_")
-                if not os.path.exists(ckpt_dir):
-                    os.makedirs(ckpt_dir)
-                torch.save(model.state_dict(), '{}.pkl'.format(ckpt_dir + "/epoch_" + str(epoch)))
+                # files = glob.glob(ckpt_dir + '/*.pkl')
+                # for file in files:
+                #     epoch_nb = file.split('_')[-1]
+                #     epoch_nb = int(epoch_nb.split('.')[0])
+                #     if epoch_nb < epoch-1:
+                #         os.remove(file)
 
-                files = glob.glob(ckpt_dir + '/*.pkl')
-                for file in files:
-                    epoch_nb = file.split('_')[-1]
-                    epoch_nb = int(epoch_nb.split('.')[0])
-                    if epoch_nb < epoch-1:
-                        os.remove(file)
-
-                scheduler.step(epoch_val_loss)
+                scheduler.step(epoch_train_loss)
 
                 if optimizer.param_groups[0]['lr'] < params['min_lr']:
                     print("\n!! LR SMALLER OR EQUAL TO MIN LR THRESHOLD.")
@@ -497,7 +485,7 @@ def main():
         os.makedirs(out_dir + 'configs')
 
     net_params['total_param'] = view_model_param(MODEL_NAME, net_params)
-    train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs)
+    train_test_pipeline(MODEL_NAME, dataset, params, net_params, dirs, classes)
 
 main()    
 
