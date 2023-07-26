@@ -129,10 +129,10 @@ def wl_positional_encoding(g):
 class IGsDGL(torch.utils.data.Dataset):
     def __init__(self, data_dir, split):
         self.data_dir = data_dir
-        # self.split = split
+        self.split = split
         #self.num_graphs = num_graphs
         
-        data_path = data_dir + "igraph-GTN.pkl"
+        data_path = data_dir + "igraph-GTN-%s.pkl" % self.split
         with open(data_path, "rb") as f:
             self.data = pickle.load(f)
 
@@ -144,8 +144,7 @@ class IGsDGL(torch.utils.data.Dataset):
         self._prepare()
         
     def _prepare(self):
-        # print("preparing %d graphs for the %s set..." % (self.n_samples, self.split.upper()))
-        print("preparing %d graphs " % (self.n_samples))
+        print("preparing %d graphs for the %s set..." % (self.n_samples, self.split.upper()))
 
         for sample in self.data:
             nx_graph, label = sample
@@ -197,6 +196,7 @@ class IGsDatasetDGL(torch.utils.data.Dataset):
 
         data_dir = "./data/IGs/"
         self.train = IGsDGL(data_dir, 'train')
+        self.test = IGsDGL(data_dir, 'test')
 
         print("[I] Finished loading.")
         print("Time taken: {:.4f}s".format(time.time()-t0))
@@ -218,11 +218,11 @@ class IGsDataset(torch.utils.data.Dataset):
             data = pickle.load(f)
             # datasetDGL = f
             self.train = data.train
+            self.test = data.test
 
         
         # print('SIZE: train %s, test %s, val %s :' % (len(self.train),len(self.test),len(self.val)))
-        # print('SIZE: train %s, test %s:' % (len(self.train),len(self.test)))
-        print('SIZE: %s,' % (len(self.train)))
+        print('SIZE: train %s, test %s:' % (len(self.train),len(self.test)))
         print("[I] Finished loading.")
         print("[I] Data load time: {:.4f}s".format(time.time()-start))
         print(f"Data instance example: {self.train[0][0]}")
@@ -239,14 +239,17 @@ class IGsDataset(torch.utils.data.Dataset):
         # function for adding self loops
         # this function will be called only if self_loop flag is True
         self.train.graph_lists = [self_loop(g) for g in self.train.graph_lists]
+        self.test.graph_lists = [self_loop(g) for g in self.test.graph_lists]  
         
     def _add_laplacian_positional_encodings(self, pos_enc_dim):
         # Graph positional encoding v/ Laplacian eigenvectors
         self.train.graph_lists = [laplacian_positional_encoding(g, pos_enc_dim) for g in self.train.graph_lists]
+        self.test.graph_lists = [laplacian_positional_encoding(g, pos_enc_dim) for g in self.test.graph_lists]
         
     def _add_wl_positional_encodings(self):
       # WL positional encoding from Graph-Bert, Zhang et al 2020.
       self.train.graph_lists = [wl_positional_encoding(g) for g in self.train.graph_lists]
+      self.test.graph_lists = [wl_positional_encoding(g) for g in self.test.graph_lists]
 
 # ------------------------------ DGLFormDataset ------------------------------ #
 
