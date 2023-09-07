@@ -16,7 +16,7 @@ Forked from https://github.com/graphdeeplearning/graphtransformer
 
 # 📋About <a name = "about"></a>
 
-This is a framework based on the [Graph Transformer Architecture](https://github.com/graphdeeplearning/graphtransformer) proposed by _[Vijay Prakash Dwivedi](https://github.com/vijaydwivedi75) and [Xavier Bresson](https://github.com/xbresson)_ in order to predict the next activity in a process by using the Instance Graphs obtained through the BIG (Building Instance Graphs) framework as data.
+This is a framework based on the [Graph Transformer Architecture](https://github.com/graphdeeplearning/graphtransformer) proposed by _[Vijay Prakash Dwivedi](https://github.com/vijaydwivedi75) and [Xavier Bresson](https://github.com/xbresson)_. Its main focus is to use the Instance Graphs obtained through the BIG (Building Instance Graphs) framework as data in order to predict the next activity in a process.
 
 The BIG framework, introduced in the paper "Exploiting Instance Graphs and Graph Neural Networks for Next Activity Prediction" by A. Chiorrini, C. Diamantini, A. Mircoli, and D. Potena, is an algorithm that allows the construction of instance graphs from a set of traces in an event log and the corresponding process model.
 
